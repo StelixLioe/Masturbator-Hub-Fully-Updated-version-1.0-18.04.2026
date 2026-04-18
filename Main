@@ -1,44 +1,23 @@
 --[[
-    AdminUILib v2.0
-    Библиотека для создания админ-панели с API, аналогичным Peallib.
-    
-    Пример использования:
-        local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/...")))() -- или ваш локальный код
-        
-        local Window = Library:CreateWindow({ Title = "Admin Panel", Center = true, AutoShow = true })
-        local PlayersTab = Window:AddTab("Players")
-        local GeneralGroup = PlayersTab:AddLeftGroupbox("General")
-        
-        GeneralGroup:AddToggle("Fly", { Text = "Fly mode", Default = false })
-        GeneralGroup:AddSlider("Speed", { Text = "Fly Speed", Default = 60, Min = 10, Max = 200 })
-        GeneralGroup:AddDropdown("JailType", { Text = "Jail type", Values = {"Classic", "Dark", "Ice"}, Default = 1 })
-        GeneralGroup:AddButton({ Text = "Refresh players", Callback = function() print("refreshed") end })
-        
-        -- Доступ к значениям
-        print(Toggles.Fly.Value)      -- true/false
-        print(Options.Speed.Value)    -- 60
-        print(Options.JailType.Value) -- "Classic"
+    AdminUILib v2.1
+    Полностью рабочий аналог Peallib для админ-панели.
+    API: Library:CreateWindow, Window:AddTab, Tab:AddLeftGroupbox, Tab:AddRightGroupbox,
+        Groupbox:AddToggle, AddSlider, AddDropdown, AddButton.
+    Значения: _G.Toggles.Имя.Value (bool), _G.Options.Имя.Value (number/string)
 ]]--
 
 local AdminUILib = {}
-local Toggles = {}
-local Options = {}
 
--- ========== СЕРВИСЫ ==========
+-- Сервисы
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local Lighting = game:GetService("Lighting")
-
 local player = Players.LocalPlayer
-if not player then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-    player = Players.LocalPlayer
-end
+if not player then Players:GetPropertyChangedSignal("LocalPlayer"):Wait(); player = Players.LocalPlayer end
 local playerGui = player:WaitForChild("PlayerGui", 30)
 
--- ========== ТЕМА ==========
+-- Тема
 local THEME = {
     accent  = Color3.fromRGB(100,150,255),
     bg      = Color3.fromRGB(16,18,28),
@@ -51,7 +30,11 @@ local THEME = {
     warn    = Color3.fromRGB(255,170,60),
 }
 
--- ========== UI УТИЛИТЫ ==========
+-- Глобальные хранилища значений
+_G.Toggles = {}
+_G.Options = {}
+
+-- Утилиты UI
 local function stroke(parent, thickness, color, transparency)
     local s = Instance.new("UIStroke")
     s.Thickness = thickness or 1
@@ -69,61 +52,21 @@ local function rounded(parent, r)
     return c
 end
 
-local function vpad(parent, l, t, r, b)
-    local p = Instance.new("UIPadding")
-    p.PaddingLeft = UDim.new(0, l or 0)
-    p.PaddingTop = UDim.new(0, t or 0)
-    p.PaddingRight = UDim.new(0, r or l or 0)
-    p.PaddingBottom = UDim.new(0, b or t or 0)
-    p.Parent = parent
-    return p
-end
-
-local function applyHover(target, propsIn, propsOut, hoverScale)
+local function applyHover(target, propsIn, propsOut)
     if not target or not target:IsA("GuiObject") then return end
-    hoverScale = hoverScale or 1.02
     if target:IsA("TextButton") or target:IsA("ImageButton") then target.AutoButtonColor = false end
-    target:SetAttribute("HoverBG_Out", propsOut and propsOut.BackgroundTransparency)
-    target:SetAttribute("HoverText_Out", propsOut and propsOut.TextTransparency)
-    local currentTween
-    local function tweenTo(props)
-        if not props or not target.Parent then return end
-        if currentTween then currentTween:Cancel() end
-        currentTween = TweenService:Create(target, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
-        currentTween:Play()
-    end
-    target.MouseEnter:Connect(function() tweenTo(propsIn) end)
+    target.MouseEnter:Connect(function()
+        TweenService:Create(target, TweenInfo.new(0.15), propsIn):Play()
+    end)
     target.MouseLeave:Connect(function()
-        local outProps = {}
-        if propsOut then for k, v in pairs(propsOut) do outProps[k] = v end end
-        if outProps.BackgroundTransparency == nil then
-            local bg = target:GetAttribute("HoverBG_Out")
-            if bg ~= nil then outProps.BackgroundTransparency = bg end
-        end
-        if (target:IsA("TextLabel") or target:IsA("TextButton") or target:IsA("TextBox")) and outProps.TextTransparency == nil then
-            local tt = target:GetAttribute("HoverText_Out")
-            if tt ~= nil then outProps.TextTransparency = tt end
-        end
-        tweenTo(outProps)
+        TweenService:Create(target, TweenInfo.new(0.15), propsOut):Play()
     end)
 end
 
-local function applyButtonFX(target, opts)
-    if not target:IsA("TextButton") then return end
-    target.AutoButtonColor = false
-    target.MouseButton1Click:Connect(function()
-        TweenService:Create(target, TweenInfo.new(0.08), { BackgroundTransparency = 0.4 }):Play()
-        task.wait(0.08)
-        TweenService:Create(target, TweenInfo.new(0.12), { BackgroundTransparency = opts and opts.bgOut or 0.2 }):Play()
-        if opts and opts.Callback then opts.Callback() end
-    end)
-end
-
--- ========== НОТИФИКАЦИИ ==========
+-- Уведомления
 local statusGui = Instance.new("ScreenGui")
-statusGui.Name = "StatusNotifications"
+statusGui.Name = "AdminUILib_Notifications"
 statusGui.ResetOnSpawn = false
-statusGui.DisplayOrder = 50
 statusGui.Parent = playerGui
 
 local function notify(message, icon, duration)
@@ -143,7 +86,7 @@ local function notify(message, icon, duration)
     stroke(frame, 1, THEME.accent, 0.5)
     local glass = Instance.new("Frame")
     glass.Size = UDim2.new(1, 0, 1, 0)
-    glass.BackgroundColor3 = Color3.new(1, 1, 1)
+    glass.BackgroundColor3 = Color3.new(1,1,1)
     glass.BackgroundTransparency = 0.92
     glass.BorderSizePixel = 0
     glass.Parent = frame
@@ -154,7 +97,7 @@ local function notify(message, icon, duration)
     iconLbl.BackgroundColor3 = THEME.accent
     iconLbl.BackgroundTransparency = 0.15
     iconLbl.Text = icon or "!"
-    iconLbl.TextColor3 = Color3.new(1, 1, 1)
+    iconLbl.TextColor3 = Color3.new(1,1,1)
     iconLbl.Font = Enum.Font.GothamBold
     iconLbl.TextSize = 18
     iconLbl.BorderSizePixel = 0
@@ -182,40 +125,18 @@ local function notify(message, icon, duration)
     end)
 end
 
--- ========== ОСНОВНОЙ GUI (АДАПТАЦИЯ ПОД НОВЫЙ API) ==========
-local MainGui = nil
-local CurrentWindow = nil
+-- Элементы управления -------------------------------------------------
 
--- Внутренние объекты для управления вкладками и группами
-local function createStyledButton(text, width, height, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.fromOffset(width or 100, height or 30)
-    btn.BackgroundColor3 = THEME.header
-    btn.BackgroundTransparency = 0.2
-    btn.Text = text
-    btn.TextColor3 = THEME.text
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
-    rounded(btn, 6)
-    stroke(btn, 1, THEME.accent, 0.5)
-    applyHover(btn, { BackgroundTransparency = 0.1 }, { BackgroundTransparency = 0.2 })
-    if callback then
-        btn.MouseButton1Click:Connect(callback)
-    end
-    return btn
-end
-
--- Класс для элемента управления Toggle
 local ToggleElement = {}
 ToggleElement.__index = ToggleElement
-
-function ToggleElement.new(parent, id, options)
+function ToggleElement.new(parent, id, opts)
     local self = setmetatable({}, ToggleElement)
     self.Id = id
-    self.Text = options.Text or id
-    self.Default = options.Default or false
+    self.Text = opts.Text or id
+    self.Default = opts.Default or false
     self.Value = self.Default
-    self.Parent = parent
+    self.OnChanged = opts.OnChanged
+    
     self.Container = Instance.new("Frame")
     self.Container.Size = UDim2.new(1, 0, 0, 32)
     self.Container.BackgroundTransparency = 1
@@ -249,35 +170,30 @@ function ToggleElement.new(parent, id, options)
     
     local function update(value)
         self.Value = value
-        Toggles[id] = { Value = value }
+        _G.Toggles[id] = { Value = value }
         local targetPos = value and UDim2.fromOffset(20, 2) or UDim2.fromOffset(2, 2)
         local targetColor = value and THEME.success or THEME.muted
         TweenService:Create(dot, TweenInfo.new(0.12), { Position = targetPos }):Play()
         TweenService:Create(toggleBtn, TweenInfo.new(0.12), { BackgroundColor3 = targetColor }):Play()
-        if options.OnChanged then options.OnChanged(value) end
+        if self.OnChanged then self.OnChanged(value) end
     end
     
-    toggleBtn.MouseButton1Click:Connect(function()
-        update(not self.Value)
-    end)
-    
+    toggleBtn.MouseButton1Click:Connect(function() update(not self.Value) end)
     update(self.Default)
     return self
 end
 
--- Класс для Slider
 local SliderElement = {}
 SliderElement.__index = SliderElement
-
-function SliderElement.new(parent, id, options)
+function SliderElement.new(parent, id, opts)
     local self = setmetatable({}, SliderElement)
     self.Id = id
-    self.Text = options.Text or id
-    self.Min = options.Min or 0
-    self.Max = options.Max or 100
-    self.Default = options.Default or self.Min
+    self.Text = opts.Text or id
+    self.Min = opts.Min or 0
+    self.Max = opts.Max or 100
+    self.Default = opts.Default or self.Min
     self.Value = self.Default
-    self.Parent = parent
+    self.OnChanged = opts.OnChanged
     
     self.Container = Instance.new("Frame")
     self.Container.Size = UDim2.new(1, 0, 0, 48)
@@ -314,7 +230,8 @@ function SliderElement.new(parent, id, options)
     rounded(sliderBg, 2)
     
     local sliderFill = Instance.new("Frame")
-    sliderFill.Size = UDim2.new((self.Default - self.Min) / (self.Max - self.Min), 0, 1, 0)
+    local ratio = (self.Default - self.Min) / (self.Max - self.Min)
+    sliderFill.Size = UDim2.new(ratio, 0, 1, 0)
     sliderFill.BackgroundColor3 = THEME.accent
     sliderFill.BorderSizePixel = 0
     sliderFill.Parent = sliderBg
@@ -322,57 +239,53 @@ function SliderElement.new(parent, id, options)
     
     local dragBtn = Instance.new("TextButton")
     dragBtn.Size = UDim2.fromOffset(12, 12)
-    dragBtn.Position = UDim2.new((self.Default - self.Min) / (self.Max - self.Min), -6, 0.5, -6)
+    dragBtn.Position = UDim2.new(ratio, -6, 0.5, -6)
     dragBtn.BackgroundColor3 = THEME.accent
     dragBtn.BorderSizePixel = 0
     dragBtn.Parent = sliderBg
     rounded(dragBtn, 6)
     
     local dragging = false
+    local conn, releaseConn
     dragBtn.MouseButton1Down:Connect(function()
         dragging = true
-        local mouse = UserInputService:GetMouseLocation()
-        local startX = mouse.X
-        local startPos = dragBtn.Position.X.Scale
-        local conn
+        local startX = UserInputService:GetMouseLocation().X
+        local startScale = dragBtn.Position.X.Scale
         conn = RunService.RenderStepped:Connect(function()
-            if not dragging then conn:Disconnect() return end
+            if not dragging then if conn then conn:Disconnect() end return end
             local delta = (UserInputService:GetMouseLocation().X - startX) / sliderBg.AbsoluteSize.X
-            local newScale = math.clamp(startPos + delta, 0, 1)
-            local newValue = self.Min + (self.Max - self.Min) * newScale
-            newValue = math.floor(newValue)
+            local newScale = math.clamp(startScale + delta, 0, 1)
+            local newValue = math.floor(self.Min + (self.Max - self.Min) * newScale)
             self.Value = newValue
             valueLabel.Text = tostring(newValue)
             sliderFill.Size = UDim2.new(newScale, 0, 1, 0)
             dragBtn.Position = UDim2.new(newScale, -6, 0.5, -6)
-            Options[id] = { Value = newValue }
-            if options.OnChanged then options.OnChanged(newValue) end
+            _G.Options[id] = { Value = newValue }
+            if self.OnChanged then self.OnChanged(newValue) end
         end)
-        local releaseConn
         releaseConn = UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 then
                 dragging = false
-                conn:Disconnect()
-                releaseConn:Disconnect()
+                if conn then conn:Disconnect() end
+                if releaseConn then releaseConn:Disconnect() end
             end
         end)
     end)
     
+    _G.Options[id] = { Value = self.Value }
     return self
 end
 
--- Класс для Dropdown
 local DropdownElement = {}
 DropdownElement.__index = DropdownElement
-
-function DropdownElement.new(parent, id, options)
+function DropdownElement.new(parent, id, opts)
     local self = setmetatable({}, DropdownElement)
     self.Id = id
-    self.Text = options.Text or id
-    self.Values = options.Values or {}
-    self.DefaultIndex = options.Default or 1
+    self.Text = opts.Text or id
+    self.Values = opts.Values or {}
+    self.DefaultIndex = opts.Default or 1
     self.Value = self.Values[self.DefaultIndex] or self.Values[1]
-    self.Parent = parent
+    self.OnChanged = opts.OnChanged
     
     self.Container = Instance.new("Frame")
     self.Container.Size = UDim2.new(1, 0, 0, 32)
@@ -402,15 +315,14 @@ function DropdownElement.new(parent, id, options)
     rounded(dropdownBtn, 6)
     stroke(dropdownBtn, 1, THEME.accent, 0.5)
     
-    local function updateDropdown(value)
+    local function update(value)
         self.Value = value
         dropdownBtn.Text = value
-        Options[id] = { Value = value }
-        if options.OnChanged then options.OnChanged(value) end
+        _G.Options[id] = { Value = value }
+        if self.OnChanged then self.OnChanged(value) end
     end
     
     dropdownBtn.MouseButton1Click:Connect(function()
-        -- Простой выбор через всплывающее меню (можно улучшить)
         local menu = Instance.new("Frame")
         menu.Size = UDim2.fromOffset(120, #self.Values * 28)
         menu.BackgroundColor3 = THEME.panel
@@ -433,7 +345,7 @@ function DropdownElement.new(parent, id, options)
             btn.Parent = menu
             rounded(btn, 4)
             btn.MouseButton1Click:Connect(function()
-                updateDropdown(v)
+                update(v)
                 menu:Destroy()
             end)
         end
@@ -452,18 +364,16 @@ function DropdownElement.new(parent, id, options)
         end)
     end)
     
+    _G.Options[id] = { Value = self.Value }
     return self
 end
 
--- Класс для Button
 local ButtonElement = {}
 ButtonElement.__index = ButtonElement
-
-function ButtonElement.new(parent, options)
+function ButtonElement.new(parent, opts)
     local self = setmetatable({}, ButtonElement)
-    self.Text = options.Text or "Button"
-    self.Callback = options.Callback or function() end
-    self.Parent = parent
+    self.Text = opts.Text or "Button"
+    self.Callback = opts.Callback or function() end
     
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, -20, 0, 30)
@@ -482,17 +392,18 @@ function ButtonElement.new(parent, options)
     return self
 end
 
--- Класс Groupbox
+-- Groupbox ------------------------------------------------------------
 local Groupbox = {}
 Groupbox.__index = Groupbox
 
-function Groupbox.new(parent, title, side) -- side: "Left" or "Right"
+function Groupbox.new(parent, title, side)
     local self = setmetatable({}, Groupbox)
     self.Frame = Instance.new("Frame")
-    self.Frame.Size = UDim2.new(0.5, -10, 1, 0)
     if side == "Right" then
+        self.Frame.Size = UDim2.new(0.5, -10, 1, 0)
         self.Frame.Position = UDim2.new(0.5, 10, 0, 0)
     else
+        self.Frame.Size = UDim2.new(0.5, -10, 1, 0)
         self.Frame.Position = UDim2.new(0, 0, 0, 0)
     end
     self.Frame.BackgroundColor3 = THEME.header
@@ -501,7 +412,6 @@ function Groupbox.new(parent, title, side) -- side: "Left" or "Right"
     self.Frame.Parent = parent
     rounded(self.Frame, 10)
     stroke(self.Frame, 1, THEME.accent, 0.5)
-    vpad(self.Frame, 12, 12, 12, 12)
     
     local titleLabel = Instance.new("TextLabel")
     titleLabel.Text = title
@@ -509,14 +419,20 @@ function Groupbox.new(parent, title, side) -- side: "Left" or "Right"
     titleLabel.Font = Enum.Font.GothamBold
     titleLabel.TextSize = 14
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    titleLabel.Size = UDim2.new(1, 0, 0, 24)
+    titleLabel.Size = UDim2.new(1, -24, 0, 24)
+    titleLabel.Position = UDim2.new(0, 12, 0, 8)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Parent = self.Frame
     
-    self.Content = Instance.new("Frame")
-    self.Content.Size = UDim2.new(1, 0, 1, -34)
-    self.Content.Position = UDim2.new(0, 0, 0, 28)
+    self.Content = Instance.new("ScrollingFrame")
+    self.Content.Size = UDim2.new(1, -12, 1, -44)
+    self.Content.Position = UDim2.new(0, 6, 0, 38)
     self.Content.BackgroundTransparency = 1
+    self.Content.BorderSizePixel = 0
+    self.Content.ScrollBarThickness = 4
+    self.Content.ScrollBarImageColor3 = THEME.accent
+    self.Content.ScrollBarImageTransparency = 0.5
+    self.Content.CanvasSize = UDim2.new(0, 0, 0, 0)
     self.Content.Parent = self.Frame
     
     self.ListLayout = Instance.new("UIListLayout")
@@ -524,35 +440,39 @@ function Groupbox.new(parent, title, side) -- side: "Left" or "Right"
     self.ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
     self.ListLayout.Parent = self.Content
     
+    self.ListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        self.Content.CanvasSize = UDim2.new(0, 0, 0, self.ListLayout.AbsoluteContentSize.Y + 10)
+    end)
+    
     self.Elements = {}
     return self
 end
 
-function Groupbox:AddToggle(id, options)
-    local elem = ToggleElement.new(self.Content, id, options)
+function Groupbox:AddToggle(id, opts)
+    local elem = ToggleElement.new(self.Content, id, opts)
     table.insert(self.Elements, elem)
     return elem
 end
 
-function Groupbox:AddSlider(id, options)
-    local elem = SliderElement.new(self.Content, id, options)
+function Groupbox:AddSlider(id, opts)
+    local elem = SliderElement.new(self.Content, id, opts)
     table.insert(self.Elements, elem)
     return elem
 end
 
-function Groupbox:AddDropdown(id, options)
-    local elem = DropdownElement.new(self.Content, id, options)
+function Groupbox:AddDropdown(id, opts)
+    local elem = DropdownElement.new(self.Content, id, opts)
     table.insert(self.Elements, elem)
     return elem
 end
 
-function Groupbox:AddButton(options)
-    local elem = ButtonElement.new(self.Content, options)
+function Groupbox:AddButton(opts)
+    local elem = ButtonElement.new(self.Content, opts)
     table.insert(self.Elements, elem)
     return elem
 end
 
--- Класс Tab
+-- Tab -----------------------------------------------------------------
 local Tab = {}
 Tab.__index = Tab
 
@@ -564,20 +484,19 @@ function Tab.new(parent, name)
     self.Frame.BackgroundTransparency = 1
     self.Frame.Visible = false
     self.Frame.Parent = parent
-    
-    self.LeftGroupbox = nil
-    self.RightGroupbox = nil
     return self
 end
 
 function Tab:AddLeftGroupbox(title)
-    self.LeftGroupbox = Groupbox.new(self.Frame, title, "Left")
-    return self.LeftGroupbox
+    local gb = Groupbox.new(self.Frame, title, "Left")
+    self.LeftGroupbox = gb
+    return gb
 end
 
 function Tab:AddRightGroupbox(title)
-    self.RightGroupbox = Groupbox.new(self.Frame, title, "Right")
-    return self.RightGroupbox
+    local gb = Groupbox.new(self.Frame, title, "Right")
+    self.RightGroupbox = gb
+    return gb
 end
 
 function Tab:Show()
@@ -588,18 +507,16 @@ function Tab:Hide()
     self.Frame.Visible = false
 end
 
--- Класс Window
+-- Window --------------------------------------------------------------
 local Window = {}
 Window.__index = Window
 
-function Window.new(options)
+function Window.new(opts)
     local self = setmetatable({}, Window)
-    self.Title = options.Title or "Window"
-    self.Center = options.Center or true
-    self.AutoShow = options.AutoShow or false
-    self.Tabs = {}
+    self.Title = opts.Title or "Window"
+    self.Center = opts.Center == nil and true or opts.Center
+    self.AutoShow = opts.AutoShow or false
     
-    -- Создание основного GUI
     self.Gui = Instance.new("ScreenGui")
     self.Gui.Name = "AdminUILib_Window"
     self.Gui.ResetOnSpawn = false
@@ -619,7 +536,7 @@ function Window.new(options)
     rounded(self.MainFrame, 12)
     stroke(self.MainFrame, 2, THEME.accent, 0.3)
     
-    -- Заголовок
+    -- Title bar
     local titleBar = Instance.new("Frame")
     titleBar.Size = UDim2.new(1, 0, 0, 48)
     titleBar.BackgroundColor3 = THEME.header
@@ -651,40 +568,31 @@ function Window.new(options)
     closeBtn.BorderSizePixel = 0
     closeBtn.Parent = titleBar
     rounded(closeBtn, 8)
-    closeBtn.MouseButton1Click:Connect(function()
-        self.Gui:Destroy()
-    end)
+    closeBtn.MouseButton1Click:Connect(function() self.Gui:Destroy() end)
     
-    -- Контейнер для вкладок
-    self.TabContainer = Instance.new("Frame")
-    self.TabContainer.Size = UDim2.new(1, -20, 1, -68)
-    self.TabContainer.Position = UDim2.new(0, 10, 0, 58)
-    self.TabContainer.BackgroundTransparency = 1
-    self.TabContainer.Parent = self.MainFrame
-    
-    -- Панель переключения вкладок
+    -- Tab bar
     self.TabBar = Instance.new("Frame")
-    self.TabBar.Size = UDim2.new(1, 0, 0, 32)
+    self.TabBar.Size = UDim2.new(1, -20, 0, 32)
+    self.TabBar.Position = UDim2.new(0, 10, 0, 58)
     self.TabBar.BackgroundTransparency = 1
-    self.TabBar.Parent = self.TabContainer
+    self.TabBar.Parent = self.MainFrame
     
+    -- Content container
+    self.ContentContainer = Instance.new("Frame")
+    self.ContentContainer.Size = UDim2.new(1, -20, 1, -100)
+    self.ContentContainer.Position = UDim2.new(0, 10, 0, 98)
+    self.ContentContainer.BackgroundTransparency = 1
+    self.ContentContainer.Parent = self.MainFrame
+    
+    self.Tabs = {}
     self.TabButtons = {}
-    self.TabContent = self.TabContainer
-    
-    if self.AutoShow then
-        self.Gui.Enabled = true
-    else
-        self.Gui.Enabled = false
-    end
-    
     return self
 end
 
 function Window:AddTab(name)
-    local tab = Tab.new(self.TabContent, name)
+    local tab = Tab.new(self.ContentContainer, name)
     table.insert(self.Tabs, tab)
     
-    -- Кнопка вкладки
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.fromOffset(100, 28)
     btn.BackgroundColor3 = THEME.header
@@ -701,7 +609,7 @@ function Window:AddTab(name)
     local function select()
         for _, t in ipairs(self.Tabs) do t:Hide() end
         tab:Show()
-        for _, b in pairs(self.TabButtons) do
+        for _, b in ipairs(self.TabButtons) do
             b.BackgroundColor3 = THEME.header
             b.BackgroundTransparency = 0.3
         end
@@ -709,18 +617,18 @@ function Window:AddTab(name)
         btn.BackgroundTransparency = 0.2
     end
     btn.MouseButton1Click:Connect(select)
-    self.TabButtons[#self.TabButtons+1] = btn
+    table.insert(self.TabButtons, btn)
     
-    -- Если это первая вкладка, показать её
-    if #self.Tabs == 1 then
-        select()
+    if #self.Tabs == 1 then select() end
+    
+    -- Layout for tab buttons
+    local layout = self.TabBar:FindFirstChildOfClass("UIListLayout")
+    if not layout then
+        layout = Instance.new("UIListLayout")
+        layout.FillDirection = Enum.FillDirection.Horizontal
+        layout.Padding = UDim.new(0, 6)
+        layout.Parent = self.TabBar
     end
-    
-    -- Расположение кнопок горизонтально
-    local layout = Instance.new("UIListLayout")
-    layout.FillDirection = Enum.FillDirection.Horizontal
-    layout.Padding = UDim.new(0, 6)
-    layout.Parent = self.TabBar
     
     return tab
 end
@@ -737,22 +645,18 @@ function Window:Destroy()
     if self.Gui then self.Gui:Destroy() end
 end
 
--- ========== ОСНОВНАЯ БИБЛИОТЕКА ==========
-function AdminUILib:CreateWindow(options)
-    local win = Window.new(options)
-    CurrentWindow = win
-    return win
+-- Основная библиотека -------------------------------------------------
+function AdminUILib:CreateWindow(opts)
+    return Window.new(opts)
 end
 
-function AdminUILib:Notify(message, icon, duration)
-    notify(message, icon, duration)
+function AdminUILib:Notify(msg, icon, dur)
+    notify(msg, icon, dur)
 end
 
--- Глобальные таблицы для доступа к значениям
-_G.Toggles = Toggles
-_G.Options = Options
+-- Глобальный доступ
+_G.Library = AdminUILib
 
--- Инициализация (создаём системные GUI)
-notify("AdminUILib loaded. Use Library:CreateWindow()", "✅", 2)
+notify("AdminUILib v2.1 loaded. Use Library:CreateWindow()", "✅", 3)
 
 return AdminUILib
